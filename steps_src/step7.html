@@ -1,0 +1,83 @@
+<div class="step active">
+  <div class="step-header">
+    <div class="step-number">7</div>
+    <div class="step-title-block">
+      <h2>Ollama Integration &amp; Text Chunking</h2>
+      <div class="step-subtitle">Line-by-line inspection of ollama_client.py and text chunking strategy</div>
+    </div>
+  </div>
+
+  <h3>1. Under the Hood: Text Chunking Strategy</h3>
+  <p>To perform vector searches on text documents, we must divide them into smaller segments (chunks) before generating embeddings. Large files can exceed the model's context window (e.g. 8192 tokens for <code>nomic-embed-text</code>). Additionally, embedding small, semantically coherent segments (e.g. 200–300 words) yields more precise search results than embedding entire documents.</p>
+
+  <h3>2. Sliding Window Math</h3>
+  <p>To avoid losing context at chunk boundaries, we use a <strong>Sliding Window</strong> approach with a coordinate offset overlap. Let <code>chunk_words</code> be the chunk size and <code>overlap_words</code> be the overlap size. The sliding step is calculated as:</p>
+  <div style="margin:12px 0;font-style:italic;font-family:'Roboto Mono',monospace;font-size:14px;color:var(--grey-900);">step = chunk_words - overlap_words</div>
+  <p>Using a step of 220 words with a chunk size of 250 words creates a 30-word overlap. This overlap ensures that sentences or concepts that cross a boundary are captured in both adjacent chunks, maintaining context across segments.</p>
+
+  <div class="file-card">
+    <div class="file-card-header">
+      <div class="file-card-name">vectordb/ollama_client.py</div>
+      <div class="file-card-desc">Local Ollama Client Implementation</div>
+    </div>
+    <pre><span class="lang-label">python</span><code><span class="kw">import</span> requests
+<span class="kw">from</span> typing <span class="kw">import</span> List
+
+<span class="kw">class</span> <span class="cls">OllamaClient</span>:
+    embed_model = <span class="str">"nomic-embed-text"</span>
+    gen_model = <span class="str">"llama3.2"</span>
+
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, host: str = <span class="str">"127.0.0.1"</span>, port: int = <span class="num">11434</span>) -> None:
+        self._base = <span class="str">f"http://{{host}}:{{port}}"</span>
+
+    <span class="kw">def</span> <span class="fn">is_available</span>(self) -> bool:
+        <span class="kw">try</span>:
+            r = requests.get(<span class="str">f"{{self._base}}/api/tags"</span>, timeout=<span class="num">2</span>)
+            <span class="kw">return</span> r.status_code == <span class="num">200</span>
+        <span class="kw">except</span> requests.RequestException:
+            <span class="kw">return</span> False
+
+    <span class="kw">def</span> <span class="fn">embed</span>(self, text: str) -> List[float]:
+        <span class="kw">try</span>:
+            r = requests.post(
+                <span class="str">f"{{self._base}}/api/embeddings"</span>,
+                json={{<span class="str">"model"</span>: self.embed_model, <span class="str">"prompt"</span>: text}},
+                timeout=<span class="num">33</span>
+            )
+            r.raise_for_status()
+            <span class="kw">return</span> r.json().get(<span class="str">"embedding"</span>, [])
+        <span class="kw">except</span> requests.RequestException:
+            <span class="kw">return</span> []
+
+    <span class="kw">def</span> <span class="fn">generate</span>(self, prompt: str) -> str:
+        <span class="kw">try</span>:
+            r = requests.post(
+                <span class="str">f"{{self._base}}/api/generate"</span>,
+                json={{
+                    <span class="str">"model"</span>: self.gen_model,
+                    <span class="str">"prompt"</span>: prompt,
+                    <span class="str">"stream"</span>: False,
+                    <span class="str">"options"</span>: {{<span class="str">"temperature"</span>: <span class="num">0.2</span>}}
+                }},
+                timeout=<span class="num">60</span>
+            )
+            r.raise_for_status()
+            <span class="kw">return</span> r.json().get(<span class="str">"response"</span>, <span class="str">""</span>)
+        <span class="kw">except</span> requests.RequestException <span class="kw">as</span> e:
+            <span class="kw">return</span> <span class="str">f"Error generating answer: {{str(e)}}"</span></code></pre>
+  </div>
+
+  <div class="code-annotation">
+    <strong>Code Analysis:</strong>
+    <ul>
+      <li><code>timeout=33</code>: Connect timeouts are kept low, while read timeouts are generous. This allows the local server to load and process the model on its first run without raising client exceptions.</li>
+      <li><code>"stream": False</code>: Disables streaming responses, returning the completed output in a single HTTP response to simplify parsing.</li>
+      <li><code>"temperature": 0.2</code>: Configures the model to generate more focused, deterministic responses, which is ideal for fact-based retrieval tasks.</li>
+    </ul>
+  </div>
+
+  <div class="step-nav">
+    <button class="btn-nav btn-prev" onclick="showStep(6)">← Previous</button>
+    <button class="btn-nav btn-next" onclick="showStep(8)">Next: Flask Backend Routing →</button>
+  </div>
+</div>

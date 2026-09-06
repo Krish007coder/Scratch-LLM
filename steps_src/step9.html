@@ -1,0 +1,84 @@
+<div class="step active">
+  <div class="step-header">
+    <div class="step-number">9</div>
+    <div class="step-title-block">
+      <h2>Interactive Web UI</h2>
+      <div class="step-subtitle">Visual design tokens and custom PCA processing</div>
+    </div>
+  </div>
+
+  <h3>1. Under the Hood: PCA Dimension Reduction</h3>
+  <p>To visualize high-dimensional vectors on a 2D web canvas, we must project their coordinates onto a 2D plane. Rather than relying on heavy server-side scientific libraries like scikit-learn, the frontend dashboard uses a custom JavaScript implementation of <strong>Principal Component Analysis (PCA)</strong> to project vectors dynamically in the browser.</p>
+
+  <h3>2. Power Iteration Math</h3>
+  <p>PCA identifies the principal components (eigenvectors) of the data covariance matrix that maximize coordinate variance. We use the <strong>Power Iteration</strong> numerical method to extract these eigenvectors. Given a centered data matrix <code>X</code>:</p>
+  <ol>
+    <li>Start with a random vector <code>v</code>.</li>
+    <li>Multiply <code>v</code> by the covariance matrix:
+      <div style="margin:8px 0;font-style:italic;font-family:'Roboto Mono',monospace;font-size:14px;color:var(--grey-900);">v_new = X^T * (X * v)</div>
+    </li>
+    <li>Normalize the resulting vector:
+      <div style="margin:8px 0;font-style:italic;font-family:'Roboto Mono',monospace;font-size:14px;color:var(--grey-900);">v = v_new / ||v_new||</div>
+    </li>
+    <li>Repeat for a set number of iterations (e.g. 200) until the vector converges to the first principal component (PC1).</li>
+  </ol>
+
+  <div class="file-card">
+    <div class="file-card-header">
+      <div class="file-card-name">JavaScript UI Code Snippet</div>
+      <div class="file-card-desc">Client-side PCA Implementation</div>
+    </div>
+    <pre><span class="lang-label">javascript</span><code>function pca2D(embs) {{
+  const n = embs.length, d = embs[0].length;
+  if (n < 2) return embs.map(() => [0, 0]);
+  
+  // 1. Calculate the mean along each dimension
+  const mean = new Array(d).fill(0);
+  for (const e of embs) {{
+    for (let i = 0; i < d; i++) mean[i] += e[i] / n;
+  }}
+  
+  // 2. Center the data by subtracting the mean
+  const X = embs.map(e => e.map((v, i) => v - mean[i]));
+  
+  // 3. Power Iteration to find the first principal component (PC1)
+  function powerIter(X_centered) {{
+    let v = new Array(d).fill(0).map(() => Math.random() - 0.5);
+    let norm = Math.sqrt(v.reduce((s, vi) => s + vi * vi, 0));
+    v = v.map(vi => vi / norm);
+    
+    for (let it = 0; it < 200; it++) {{
+      const Xv = X_centered.map(xi => xi.reduce((s, xij, j) => s + xij * v[j], 0));
+      const nv = new Array(d).fill(0);
+      for (let k = 0; k < n; k++) {{
+        for (let j = 0; j < d; j++) nv[j] += X_centered[k][j] * Xv[k];
+      }}
+      norm = Math.sqrt(nv.reduce((s, vi) => s + vi * vi, 0));
+      v = nv.map(vi => vi / norm);
+    }}
+    return v;
+  }}
+  
+  const pc1 = powerIter(X);
+  
+  // 4. Project the centered data onto the PC1 axis
+  return X.map(x => {{
+    const projX = x.reduce((s, v, i) => s + v * pc1[i], 0);
+    return [projX, 0]; // Visualized as coordinates on a 1D timeline / 2D graph
+  }});
+}}</code></pre>
+  </div>
+
+  <div class="code-annotation">
+    <strong>Code Analysis:</strong>
+    <ul>
+      <li><code>X = embs.map(e =&gt; e.map((v, i) =&gt; v - mean[i]))</code>: Centering the data is necessary for PCA because it aligns the principal components with the axes of maximum variance relative to the dataset's center.</li>
+      <li><code>nv[j] += X_centered[k][j] * Xv[k]</code>: Performs matrix-vector multiplication without allocating intermediate matrix objects, optimizing performance in client-side Javascript.</li>
+    </ul>
+  </div>
+
+  <div class="step-nav">
+    <button class="btn-nav btn-prev" onclick="showStep(8)">← Previous</button>
+    <button class="btn-nav btn-next" onclick="showStep(10)">Next: Entry Point →</button>
+  </div>
+</div>

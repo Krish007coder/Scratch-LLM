@@ -1,0 +1,243 @@
+<div class="step active">
+  <div class="step-header">
+    <div class="step-number">5</div>
+    <div class="step-title-block">
+      <h2>Search Algorithms</h2>
+      <div class="step-subtitle">Detailed line-by-line inspection of search structures</div>
+    </div>
+  </div>
+
+  <h3>1. Algorithmic Complexity Mapping</h3>
+  <table>
+    <thead>
+      <tr><th>Structure</th><th>Build Complexity</th><th>Query Complexity (Avg)</th><th>Query Complexity (Worst)</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Brute Force</strong></td><td>O(1)</td><td>O(N · d)</td><td>O(N · d)</td></tr>
+      <tr><td><strong>KD-Tree</strong></td><td>O(N log N)</td><td>O(log N) (low dims)</td><td>O(N · d) (high dims)</td></tr>
+      <tr><td><strong>HNSW Graph</strong></td><td>O(N log N)</td><td>O(log N)</td><td>O(log N)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>2. Brute Force Implementation</h3>
+  <div class="file-card">
+    <div class="file-card-header">
+      <div class="file-card-name">vectordb/bruteforce.py</div>
+      <div class="file-card-desc">Exhaustive Linear Scan</div>
+    </div>
+    <pre><span class="lang-label">python</span><code><span class="kw">import</span> heapq
+<span class="kw">from</span> typing <span class="kw">import</span> List, Tuple
+<span class="kw">from</span> .types <span class="kw">import</span> VectorItem
+<span class="kw">from</span> .metrics <span class="kw">import</span> DistFn
+
+DistId = Tuple[float, int]
+
+<span class="kw">class</span> <span class="cls">BruteForce</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self) -> None:
+        self.items: List[VectorItem] = []
+
+    <span class="kw">def</span> <span class="fn">insert</span>(self, item: VectorItem) -> None:
+        self.items.append(item)
+
+    <span class="kw">def</span> <span class="fn">knn</span>(self, q: List[float], k: int, dist: DistFn) -> List[DistId]:
+        <span class="kw">if</span> <span class="kw">not</span> self.items: <span class="kw">return</span> []
+        heap = []
+        <span class="kw">for</span> item <span class="kw">in</span> self.items:
+            d = dist(q, item.emb)
+            <span class="kw">if</span> len(heap) < k:
+                heapq.heappush(heap, (-d, item.id))
+            <span class="kw">elif</span> d < -heap[<span class="num">0</span>][<span class="num">0</span>]:
+                heapq.heappushpop(heap, (-d, item.id))
+        res = [(-d, nid) <span class="kw">for</span> d, nid <span class="kw">in</span> heap]
+        res.sort(key=<span class="kw">lambda</span> x: x[<span class="num">0</span>])
+        <span class="kw">return</span> res
+
+    <span class="kw">def</span> <span class="fn">remove</span>(self, item_id: int) -> None:
+        self.items = [v <span class="kw">for</span> v <span class="kw">in</span> self.items <span class="kw">if</span> v.id != item_id]</code></pre>
+  </div>
+
+  <h3>3. KD-Tree Space Partitioning</h3>
+  <div class="file-card">
+    <div class="file-card-header">
+      <div class="file-card-name">vectordb/kdtree.py</div>
+      <div class="file-card-desc">Binary Space Partitioning Tree</div>
+    </div>
+    <pre><span class="lang-label">python</span><code><span class="kw">import</span> heapq
+<span class="kw">from</span> typing <span class="kw">import</span> List, Optional, Tuple
+<span class="kw">from</span> .types <span class="kw">import</span> VectorItem
+<span class="kw">from</span> .metrics <span class="kw">import</span> DistFn
+
+DistId = Tuple[float, int]
+
+<span class="kw">class</span> <span class="cls">_KDNode</span>:
+    __slots__ = (<span class="str">"item"</span>, <span class="str">"left"</span>, <span class="str">"right"</span>)
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, item: VectorItem) -> None:
+        self.item = item
+        self.left = None
+        self.right = None
+
+<span class="kw">class</span> <span class="cls">KDTree</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, dims: int) -> None:
+        self.dims = dims
+        self._root = None
+
+    <span class="kw">def</span> <span class="fn">insert</span>(self, item: VectorItem) -> None:
+        self._root = self._insert(self._root, item, depth=<span class="num">0</span>)
+
+    <span class="kw">def</span> <span class="fn">_insert</span>(self, node: Optional[_KDNode], item: VectorItem, depth: int) -> _KDNode:
+        <span class="kw">if</span> node <span class="kw">is</span> None: <span class="kw">return</span> _KDNode(item)
+        axis = depth % self.dims
+        <span class="kw">if</span> item.emb[axis] < node.item.emb[axis]:
+            node.left = self._insert(node.left, item, depth + <span class="num">1</span>)
+        <span class="kw">else</span>:
+            node.right = self._insert(node.right, item, depth + <span class="num">1</span>)
+        <span class="kw">return</span> node
+
+    <span class="kw">def</span> <span class="fn">rebuild</span>(self, items: List[VectorItem]) -> None:
+        self._root = None
+        <span class="kw">for</span> item <span class="kw">in</span> items:
+            self.insert(item)
+
+    <span class="kw">def</span> <span class="fn">knn</span>(self, q: List[float], k: int, dist: DistFn) -> List[DistId]:
+        heap = []
+        self._knn(self._root, q, k, <span class="num">0</span>, dist, heap)
+        res = [(-d, nid) <span class="kw">for</span> d, nid <span class="kw">in</span> heap]
+        res.sort()
+        <span class="kw">return</span> res
+
+    <span class="kw">def</span> <span class="fn">_knn</span>(self, node: Optional[_KDNode], q: List[float], k: int, depth: int, dist: DistFn, heap: List[Tuple[float, int]]) -> None:
+        <span class="kw">if</span> node <span class="kw">is</span> None: <span class="kw">return</span>
+        dn = dist(q, node.item.emb)
+        <span class="kw">if</span> len(heap) < k <span class="kw">or</span> dn < -heap[<span class="num">0</span>][<span class="num">0</span>]:
+            heapq.heappush(heap, (-dn, node.item.id))
+            <span class="kw">if</span> len(heap) > k: heapq.heappop(heap)
+        axis = depth % self.dims
+        diff = q[axis] - node.item.emb[axis]
+        closer = node.left <span class="kw">if</span> diff < <span class="num">0</span> <span class="kw">else</span> node.right
+        farther = node.right <span class="kw">if</span> diff < <span class="num">0</span> <span class="kw">else</span> node.left
+        self._knn(closer, q, k, depth + <span class="num">1</span>, dist, heap)
+        <span class="kw">if</span> len(heap) < k <span class="kw">or</span> abs(diff) < -heap[<span class="num">0</span>][<span class="num">0</span>]:
+            self._knn(farther, q, k, depth + <span class="num">1</span>, dist, heap)</code></pre>
+  </div>
+
+  <h3>4. HNSW Layered Graph</h3>
+  <div class="file-card">
+    <div class="file-card-header">
+      <div class="file-card-name">vectordb/hnsw.py</div>
+      <div class="file-card-desc">Hierarchical Navigable Small World Graph</div>
+    </div>
+    <pre><span class="lang-label">python</span><code><span class="kw">import</span> math
+<span class="kw">import</span> random
+<span class="kw">import</span> heapq
+<span class="kw">from</span> typing <span class="kw">import</span> Dict, List, Optional, Tuple, Set
+<span class="kw">from</span> .types <span class="kw">import</span> VectorItem
+<span class="kw">from</span> .metrics <span class="kw">import</span> DistFn
+
+DistId = Tuple[float, int]
+
+<span class="kw">class</span> <span class="cls">_Node</span>:
+    __slots__ = (<span class="str">"item"</span>, <span class="str">"max_lyr"</span>, <span class="str">"nbrs"</span>)
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, item: VectorItem, max_lyr: int) -> None:
+        self.item = item
+        self.max_lyr = max_lyr
+        self.nbrs: List[List[int]] = [[] <span class="kw">for</span> _ <span class="kw">in</span> range(max_lyr + <span class="num">1</span>)]
+
+<span class="kw">class</span> <span class="cls">HNSW</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, M: int = <span class="num">16</span>, ef_build: int = <span class="num">200</span>, seed: int = <span class="num">42</span>) -> None:
+        self.M = M
+        self.M0 = <span class="num">2</span> * M
+        self.ef_build = ef_build
+        self.mL = <span class="num">1.0</span> / math.log(M)
+        self._rng = random.Random(seed)
+        self._graph: Dict[int, _Node] = {}
+        self._top_layer: int = -<span class="num">1</span>
+        self._entry_pt: Optional[int] = None
+
+    <span class="kw">def</span> <span class="fn">_rand_level</span>(self) -> int:
+        <span class="kw">return</span> int(math.floor(-math.log(self._rng.random()) * self.mL))
+
+    <span class="kw">def</span> <span class="fn">_search_layer</span>(self, q: List[float], ep: int, ef: int, lyr: int, dist: DistFn) -> List[DistId]:
+        visited: Set[int] = {{ep}}
+        d0 = dist(q, self._graph[ep].item.emb)
+        cands: List[DistId] = [(d0, ep)]
+        found: List[Tuple[float, int]] = [(-d0, ep)]
+
+        <span class="kw">while</span> cands:
+            cd, cid = heapq.heappop(cands)
+            <span class="kw">if</span> len(found) >= ef <span class="kw">and</span> cd > -found[<span class="num">0</span>][<span class="num">0</span>]: <span class="kw">break</span>
+            node = self._graph.get(cid)
+            <span class="kw">if</span> node <span class="kw">is</span> None <span class="kw">or</span> lyr >= len(node.nbrs): <span class="kw">continue</span>
+            <span class="kw">for</span> nid <span class="kw">in</span> node.nbrs[lyr]:
+                <span class="kw">if</span> nid <span class="kw">in</span> visited <span class="kw">or</span> nid <span class="kw">not in</span> self._graph: <span class="kw">continue</span>
+                visited.add(nid)
+                nd = dist(q, self._graph[nid].item.emb)
+                <span class="kw">if</span> len(found) < ef <span class="kw">or</span> nd < -found[<span class="num">0</span>][<span class="num">0</span>]:
+                    heapq.heappush(cands, (nd, nid))
+                    heapq.heappush(found, (-nd, nid))
+                    <span class="kw">if</span> len(found) > ef: heapq.heappop(found)
+        res = [(-d, nid) <span class="kw">for</span> d, nid <span class="kw">in</span> found]
+        res.sort()
+        <span class="kw">return</span> res
+
+    <span class="kw">def</span> <span class="fn">insert</span>(self, item: VectorItem, dist: DistFn) -> None:
+        node_id = item.id
+        lvl = self._rand_level()
+        node = _Node(item=item, max_lyr=lvl)
+        self._graph[node_id] = node
+
+        <span class="kw">if</span> self._entry_pt <span class="kw">is</span> None:
+            self._entry_pt = node_id
+            self._top_layer = lvl
+            <span class="kw">return</span>
+
+        ep = self._entry_pt
+        <span class="kw">for</span> lc <span class="kw">in</span> range(self._top_layer, lvl, -<span class="num">1</span>):
+            W = self._search_layer(item.emb, ep, <span class="num">1</span>, lc, dist)
+            <span class="kw">if</span> W: ep = W[<span class="num">0</span>][<span class="num">1</span>]
+
+        <span class="kw">for</span> lc <span class="kw">in</span> range(min(self._top_layer, lvl), -<span class="num">1</span>, -<span class="num">1</span>):
+            W = self._search_layer(item.emb, ep, self.ef_build, lc, dist)
+            max_m = self.M0 <span class="kw">if</span> lc == <span class="num">0</span> <span class="kw">else</span> self.M
+            sel = [nid <span class="kw">for</span> _, nid <span class="kw">in</span> W[:max_m]]
+            self._graph[node_id].nbrs[lc] = sel
+
+            <span class="kw">for</span> nid <span class="kw">in</span> sel:
+                <span class="kw">if</span> nid <span class="kw">not in</span> self._graph: <span class="kw">continue</span>
+                nbr_node = self._graph[nid]
+                <span class="kw">while</span> len(nbr_node.nbrs) <= lc:
+                    nbr_node.nbrs.append([])
+                conn = nbr_node.nbrs[lc]
+                conn.append(node_id)
+                <span class="kw">if</span> len(conn) > max_m:
+                    ds = [(dist(nbr_node.item.emb, self._graph[c].item.emb), c) <span class="kw">for</span> c <span class="kw">in</span> conn <span class="kw">if</span> c <span class="kw">in</span> self._graph]
+                    ds.sort()
+                    nbr_node.nbrs[lc] = [c <span class="kw">for</span> _, c <span class="kw">in</span> ds[:max_m]]
+            <span class="kw">if</span> W: ep = W[<span class="num">0</span>][<span class="num">1</span>]
+
+        <span class="kw">if</span> lvl > self._top_layer:
+            self._top_layer = lvl
+            self._entry_pt = node_id
+
+    <span class="kw">def</span> <span class="fn">knn</span>(self, q: List[float], k: int, ef: int, dist: DistFn) -> List[DistId]:
+        <span class="kw">if</span> self._entry_pt <span class="kw">is</span> None: <span class="kw">return</span> []
+        ep = self._entry_pt
+        <span class="kw">for</span> lc <span class="kw">in</span> range(self._top_layer, <span class="num">0</span>, -<span class="num">1</span>):
+            W = self._search_layer(q, ep, <span class="num">1</span>, lc, dist)
+            <span class="kw">if</span> W: ep = W[<span class="num">0</span>][<span class="num">1</span>]
+        <span class="kw">return</span> self._search_layer(q, ep, max(ef, k), <span class="num">0</span>, dist)[:k]
+
+    <span class="kw">def</span> <span class="fn">remove</span>(self, item_id: int) -> None:
+        <span class="kw">if</span> item_id <span class="kw">not in</span> self._graph: <span class="kw">return</span>
+        <span class="kw">for</span> node <span class="kw">in</span> self._graph.values():
+            <span class="kw">for</span> layer <span class="kw">in</span> node.nbrs:
+                <span class="kw">if</span> item_id <span class="kw">in</span> layer: layer.remove(item_id)
+        <span class="kw">if</span> self._entry_pt == item_id:
+            self._entry_pt = next((nid <span class="kw">for</span> nid <span class="kw">in</span> self._graph <span class="kw">if</span> nid != item_id), None)
+        <span class="kw">del</span> self._graph[item_id]</code></pre>
+  </div>
+
+  <div class="step-nav">
+    <button class="btn-nav btn-prev" onclick="showStep(4)">← Previous</button>
+    <button class="btn-nav btn-next" onclick="showStep(6)">Next: Database Managers →</button>
+  </div>
+</div>

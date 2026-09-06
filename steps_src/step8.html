@@ -1,0 +1,115 @@
+<div class="step active">
+  <div class="step-header">
+    <div class="step-number">8</div>
+    <div class="step-title-block">
+      <h2>Flask Backend Routing</h2>
+      <div class="step-subtitle">Detailed line-by-line breakdown of server.py endpoints</div>
+    </div>
+  </div>
+
+  <h3>1. Under the Hood: Routing &amp; CORS Preflight</h3>
+  <p>To enable cross-origin requests (CORS) from a separate frontend application, we configure Flask to return permissive CORS headers. When browser applications make cross-origin writes (e.g. POST or DELETE requests), they first send an <code>OPTIONS</code> preflight request. The server must handle these preflight requests by returning a <code>204 No Content</code> response with valid CORS headers before the actual write request is executed.</p>
+
+  <h3>2. Request Validation and Serialization</h3>
+  <p>Production API interfaces must validate incoming payloads and return structured error responses (e.g. <code>400 Bad Request</code>) for malformed data. Additionally, coordinate values returned in search responses are rounded to 4 decimal places before serialization, reducing the size of the JSON payloads transferred over the network.</p>
+
+  <div class="file-card">
+    <div class="file-card-header">
+      <div class="file-card-name">server.py</div>
+      <div class="file-card-desc">Flask Web Server &amp; Routes</div>
+    </div>
+    <pre><span class="lang-label">python</span><code><span class="kw">import</span> os
+<span class="kw">from</span> flask <span class="kw">import</span> Flask, jsonify, request, send_file
+<span class="kw">from</span> vectordb <span class="kw">import</span> DocumentDB, OllamaClient, VectorDB, get_dist_fn
+
+DIMS = <span class="num">16</span>
+
+<span class="kw">def</span> <span class="fn">_cors</span>(response):
+    response.headers[<span class="str">"Access-Control-Allow-Origin"</span>] = <span class="str">"*"</span>
+    response.headers[<span class="str">"Access-Control-Allow-Methods"</span>] = <span class="str">"GET, POST, DELETE, OPTIONS"</span>
+    response.headers[<span class="str">"Access-Control-Allow-Headers"</span>] = <span class="str">"Content-Type"</span>
+    <span class="kw">return</span> response
+
+<span class="kw">def</span> <span class="fn">_parse_vec</span>(s: str):
+    res = []
+    <span class="kw">for</span> token <span class="kw">in</span> s.split(<span class="str">","</span>):
+        token = token.strip()
+        <span class="kw">try</span>: res.append(float(token))
+        <span class="kw">except</span> ValueError: <span class="kw">pass</span>
+    <span class="kw">return</span> res
+
+<span class="kw">def</span> <span class="fn">create_app</span>(db: VectorDB, doc_db: DocumentDB, ollama: OllamaClient) -> Flask:
+    app = Flask(__name__, static_folder=None)
+
+    <span class="dec">@app.before_request</span>
+    <span class="kw">def</span> <span class="fn">handle_preflight</span>():
+        <span class="kw">if</span> request.method == <span class="str">"OPTIONS"</span>:
+            <span class="kw">from</span> flask <span class="kw">import</span> make_response
+            resp = make_response(<span class="str">""</span>, <span class="num">204</span>)
+            _cors(resp)
+            <span class="kw">return</span> resp
+
+    <span class="dec">@app.after_request</span>
+    <span class="kw">def</span> <span class="fn">attach_cors</span>(response):
+        <span class="kw">return</span> _cors(response)
+
+    <span class="dec">@app.route</span>(<span class="str">"/"</span>)
+    <span class="kw">def</span> <span class="fn">index</span>():
+        html_path = os.path.join(os.path.dirname(__file__), <span class="str">"index.html"</span>)
+        <span class="kw">return</span> send_file(html_path, mimetype=<span class="str">"text/html"</span>)
+
+    <span class="dec">@app.route</span>(<span class="str">"/search"</span>)
+    <span class="kw">def</span> <span class="fn">search</span>():
+        q = _parse_vec(request.args.get(<span class="str">"v"</span>, <span class="str">""</span>))
+        <span class="kw">if</span> len(q) != DIMS: <span class="kw">return</span> jsonify({{<span class="str">"error"</span>: <span class="str">f"need {{DIMS}}D vector"</span>}}), <span class="num">400</span>
+        k = int(request.args.get(<span class="str">"k"</span>, <span class="num">5</span>))
+        metric = request.args.get(<span class="str">"metric"</span>, <span class="str">"cosine"</span>)
+        algo = request.args.get(<span class="str">"algo"</span>, <span class="str">"hnsw"</span>)
+        out = db.search(q, k, metric, algo)
+        <span class="kw">return</span> jsonify({{
+            <span class="str">"results"</span>: [{{
+                <span class="str">"id"</span>: h.id, <span class="str">"metadata"</span>: h.meta, <span class="str">"category"</span>: h.cat,
+                <span class="str">"distance"</span>: round(h.dist, <span class="num">6</span>), <span class="str">"embedding"</span>: [round(x, <span class="num">4</span>) <span class="kw">for</span> x <span class="kw">in</span> h.emb]
+            }} <span class="kw">for</span> h <span class="kw">in</span> out.hits],
+            <span class="str">"latencyUs"</span>: out.latency_us, <span class="str">"algo"</span>: out.algo, <span class="str">"metric"</span>: out.metric
+        }})
+
+    <span class="dec">@app.route</span>(<span class="str">"/doc/ask"</span>, methods=[<span class="str">"POST"</span>])
+    <span class="kw">def</span> <span class="fn">doc_ask</span>():
+        body = request.get_json(silent=True) or {{}}
+        question = body.get(<span class="str">"question"</span>, <span class="str">""</span>).strip()
+        k = int(body.get(<span class="str">"k"</span>, <span class="num">3</span>))
+        <span class="kw">if</span> <span class="kw">not</span> question: <span class="kw">return</span> jsonify({{<span class="str">"error"</span>: <span class="str">"need question"</span>}}), <span class="num">400</span>
+        q_emb = ollama.embed(question)
+        <span class="kw">if</span> <span class="kw">not</span> q_emb: <span class="kw">return</span> jsonify({{<span class="str">"error"</span>: <span class="str">"Ollama unavailable"</span>}}), <span class="num">503</span>
+        hits = doc_db.search(q_emb, k)
+        context_parts = [f<span class="str">"[{{i + 1}}] {{doc.title}}:\\n{{doc.text}}"</span> <span class="kw">for</span> i, (_, doc) in enumerate(hits)]
+        context_str = <span class="str">"\\n\\n"</span>.join(context_parts)
+        prompt = (
+            <span class="str">"You are a helpful assistant. Answer the user's question directly. "</span>
+            <span class="str">"Use the provided context if it contains relevant information. "</span>
+            <span class="str">"IMPORTANT: Do NOT mention 'context' or 'provided text' in your answer.\\n\\n"</span>
+            f<span class="str">"Context:\\n{{context_str}}\\n\\nQuestion: {{question}}\\n\\nAnswer:"</span>
+        )
+        answer = ollama.generate(prompt)
+        <span class="kw">return</span> jsonify({{
+            <span class="str">"answer"</span>: answer,
+            <span class="str">"contexts"</span>: [{{<span class="str">"id"</span>: doc.id, <span class="str">"title"</span>: doc.title, <span class="str">"text"</span>: doc.text, <span class="str">"distance"</span>: round(d, <span class="num">4</span>)}} <span class="kw">for</span> d, doc <span class="kw">in</span> hits]
+        }})
+
+    <span class="kw">return</span> app</code></pre>
+  </div>
+
+  <div class="code-annotation">
+    <strong>Code Analysis:</strong>
+    <ul>
+      <li><code>@app.before_request</code>: Intercepts preflight requests and returns early, preventing cross-origin writes from triggering full request handling.</li>
+      <li><code>silent=True</code>: Prevents the JSON parser from throwing exceptions on malformed requests, allowing the endpoint to handle formatting errors gracefully.</li>
+    </ul>
+  </div>
+
+  <div class="step-nav">
+    <button class="btn-nav btn-prev" onclick="showStep(7)">← Previous</button>
+    <button class="btn-nav btn-next" onclick="showStep(9)">Next: Interactive Web UI →</button>
+  </div>
+</div>

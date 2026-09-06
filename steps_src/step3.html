@@ -1,0 +1,81 @@
+<div class="step active">
+  <div class="step-header">
+    <div class="step-number">3</div>
+    <div class="step-title-block">
+      <h2>System Architecture</h2>
+      <div class="step-subtitle">Understanding component layouts, indexing structures, and execution flow</div>
+    </div>
+  </div>
+
+  <h3>1. Unified Component Layout</h3>
+  <div class="diagram">
+    <div class="diagram-title">System Architecture Flowchart</div>
+    <pre style="background:none;color:#334155;padding:0;margin:0;font-size:12.5px;">
++-------------------------------------------------------------+
+|                     Client Web UI                           |
+|  - PCA projections of vector databases done in browser JS   |
++------------------------------+------------------------------+
+                               |  HTTP REST
+                               v
++-------------------------------------------------------------+
+|                     Flask REST Server                       |
+|  - server.py manages 12 HTTP routes                         |
++-------------+---------------------------------+-------------+
+              |                                 |
+              v                                 v
++-----------------------------+   +-----------------------------+
+|    VectorDB Interface (16D) |   |  DocumentDB Interface (768D)|
+|  - Manages Brute Force,     |   |  - Manages HNSW Index       |
+|    KD-Tree, and HNSW        |   |  - Query-based text fallback |
++-------------+---------------+   +-------------+---------------+
+              |                                 |
+              v                                 v
+   +----------+-----------+                     |  Embed/Gen requests
+   |   Distance Metrics   | <-------------------+
+   |   (metrics.py)       |
+   +----------------------+
+              ^
+              |  HTTP Requests
+              v
++-------------------------------------------------------------+
+|                        Local Ollama                         |
+|  - Runs nomic-embed-text and llama3.2 locally on port 11434  |
++-------------------------------------------------------------+
+    </pre>
+  </div>
+  
+  <h3>2. Database Separation Rationale</h3>
+  <p>To showcase search algorithms and evaluate latency under identical conditions, this project separates data into two independent modules:</p>
+  <ol>
+    <li><strong>VectorDB (16D Demo)</strong>: Operates on a hand-crafted 16-dimensional vector set. It executes queries on three search structures (Brute Force, KD-Tree, HNSW) simultaneously to visualize and compare their performance.</li>
+    <li><strong>DocumentDB (768D Production Mode)</strong>: Manages real text documents. It converts pasted texts into 768-dimensional embeddings using Ollama, which are then stored in a dedicated HNSW index for the RAG pipeline.</li>
+  </ol>
+
+  <h3>3. The RAG Pipeline Data Flow</h3>
+  <div class="diagram">
+    <div class="diagram-title">Retrieval-Augmented Generation (RAG) Flow</div>
+    <pre style="background:none;color:#334155;padding:0;margin:0;font-size:12.5px;">
+[ User Question ] ---> ( Ollama Embedding ) ---> [ 768D Query Vector ]
+                                                          |
+                                                          v
+[ Response Answer ] <--- ( Generate Model ) <--- [ Context Prompt ] <--- [ HNSW Index ]
+    </pre>
+  </div>
+  <ul>
+    <li><strong>Ingestion Pathway</strong>: Text input is chunked into 250-word segments with 30-word overlap. Each chunk is sent to Ollama's <code>/api/embeddings</code> endpoint, generating a 768-dimensional float array stored inside HNSW.</li>
+    <li><strong>Search Pathway</strong>: The user's query is embedded into a 768-dimensional vector, which is searched against the HNSW index. Chunks with Cosine distance &le; 0.7 are retrieved.</li>
+    <li><strong>Generation Pathway</strong>: The text of the retrieved chunks is concatenated to form a system prompt context. Ollama runs the context and question through <code>llama3.2</code> to generate the final answer.</li>
+  </ul>
+
+  <h3>4. Production & System Design Trade-Offs</h3>
+  <p><strong>Monolithic App vs Microservices</strong>:</p>
+  <ul>
+    <li><strong>Monolithic (Our Setup)</strong>: In-memory indexes run in the same OS process as the Flask web server. This has low complexity and near-zero inter-process communication overhead. However, it cannot scale compute independently of storage.</li>
+    <li><strong>Microservices</strong>: Decoupling distance computations into dedicated compute nodes (e.g., using Triton Inference Server) and storage/indexing into search nodes. This allows horizontal scaling but increases network latency.</li>
+  </ul>
+
+  <div class="step-nav">
+    <button class="btn-nav btn-prev" onclick="showStep(2)">← Previous</button>
+    <button class="btn-nav btn-next" onclick="showStep(4)">Next: Data Types &amp; Metrics →</button>
+  </div>
+</div>

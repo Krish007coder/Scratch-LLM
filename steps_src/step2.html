@@ -1,0 +1,70 @@
+<div class="step active">
+  <div class="step-header">
+    <div class="step-number">2</div>
+    <div class="step-title-block">
+      <h2>Prerequisites &amp; Setup</h2>
+      <div class="step-subtitle">Preparing the environmental parameters and verifying system requirements</div>
+    </div>
+  </div>
+  <h3>1. Environmental Requirements</h3>
+  <ul>
+    <li><strong>Python 3.9+</strong>: Isolating dependencies inside a virtual environment prevents version conflicts.</li>
+    <li><strong>Ollama</strong>: The local model runtime platform.</li>
+    <li><strong>System Memory</strong>: Minimum 8GB RAM is recommended to run local language models. <code>llama3.2:3b</code> requires approximately 4GB of RAM/VRAM to run inference.</li>
+  </ul>
+
+  <h3>2. Under the Hood: Memory Footprint of Local Models</h3>
+  <p>Local large language models run directly on your hardware. For example, a 3-billion parameter model like <code>llama3.2</code> stored in 4-bit quantized format takes up around 2.0GB of disk space. During execution, it must be loaded into memory (RAM or GPU VRAM). If your system lacks a dedicated GPU with sufficient VRAM, Ollama automatically falls back to CPU-bound execution, which degrades generation speed from ~40 tokens/sec to ~5 tokens/sec. <code>nomic-embed-text</code> is a lighter, 137-million parameter model requiring only ~270MB of RAM.</p>
+
+  <h3>3. Step 1 — Configuring Virtual Environment & Python</h3>
+  <p>First, create and activate a Python virtual environment to isolate the project dependencies:</p>
+  <pre><span class="lang-label">bash</span><code># Create a virtual environment named .venv
+python -m venv .venv
+
+# Activate on Windows (Command Prompt)
+.venv\Scripts\activate.bat
+
+# Activate on Windows (PowerShell)
+.venv\Scripts\Activate.ps1
+
+# Activate on macOS/Linux
+source .venv/bin/activate
+
+# Verify versions
+python --version
+pip --version</code></pre>
+  
+  <div class="callout warning">
+    <div class="callout-icon">⚠️</div>
+    <div class="callout-body">
+      <div class="callout-title">Windows execution policy warning</div>
+      <p>If PowerShell throws an error stating script execution is disabled, run the command <code>Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process</code> and try activating the environment again.</p>
+    </div>
+  </div>
+
+  <h3>4. Step 2 — Launching and Pulling Ollama Models</h3>
+  <p>Ollama runs as a background service listening on port <code>11434</code>. Pull the text-embedding model and the generative language model:</p>
+  <pre><span class="lang-label">bash</span><code># Pull the embedding model (768-dimensions)
+ollama pull nomic-embed-text
+
+# Pull the 3B parameter conversational model
+ollama pull llama3.2</code></pre>
+  <p>Verify that the models are installed and registered:</p>
+  <pre><span class="lang-label">bash</span><code>ollama list</code></pre>
+
+  <h3>5. Step 3 — Install Dependencies</h3>
+  <p>Our project uses standard HTTP and web routing capabilities. Install the required libraries:</p>
+  <pre><span class="lang-label">bash</span><code>pip install flask requests</code></pre>
+
+  <h3>6. Production & System Design Trade-Offs</h3>
+  <p><strong>Local Models vs Cloud APIs</strong>:</p>
+  <ul>
+    <li><strong>Local (Ollama)</strong>: Zero usage costs, full offline capability, absolute data privacy. However, inference latency is bound to local hardware (CPU/GPU) performance.</li>
+    <li><strong>Cloud APIs (OpenAI/Cohere)</strong>: Highly scalable, sub-second responses, but requires internet connection, usage-based billing, and sends user data to external servers.</li>
+  </ul>
+
+  <div class="step-nav">
+    <button class="btn-nav btn-prev" onclick="showStep(1)">← Previous</button>
+    <button class="btn-nav btn-next" onclick="showStep(3)">Next: System Architecture →</button>
+  </div>
+</div>

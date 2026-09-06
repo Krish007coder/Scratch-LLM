@@ -1,0 +1,164 @@
+<div class="step active">
+  <div class="step-header">
+    <div class="step-number">6</div>
+    <div class="step-title-block">
+      <h2>Database Managers</h2>
+      <div class="step-subtitle">Detailed line-by-line inspection of vectordb.py and documentdb.py</div>
+    </div>
+  </div>
+
+  <h3>1. Under the Hood: Thread Safety and Locks</h3>
+  <p>In multi-threaded web applications like Flask, multiple worker threads execute database operations concurrently. To protect shared data structures from write corruption (e.g. key overwrites or index state mismatches), we use Python's <code>threading.Lock</code>. When a thread calls a write operation, it acquires the lock, serializing write access and preventing race conditions.</p>
+
+  <h3>2. Dynamic Dimension Ingestion</h3>
+  <p>Our DocumentDB determines embedding dimensions dynamically based on the first inserted vector. This allows the database wrapper to remain model-agnostic, supporting 384D, 768D, or 1536D layouts without modification. Additionally, DocumentDB switches dynamically between search strategies: using a fast BruteForce index for small collections (&lt; 10 documents) to avoid HNSW entry point graph construction latency, and switching to the HNSW index for larger datasets.</p>
+
+  <h3>3. Static Index Rebuilding</h3>
+  <p>KD-Trees partition space based on median coordinates along cycling dimensions. Deleting an internal node invalidates these spatial boundaries, causing subsequent branches to become unbalanced. Therefore, our KD-Tree is rebuilt from scratch when an item is deleted. While rebuilding is cheap for small demo datasets, it scales at <code>O(N log N)</code>, creating a performance bottleneck for large datasets. In production, deletion is handled via tombstoning, and rebuilds are scheduled as background tasks.</p>
+
+  <div class="file-card">
+    <div class="file-card-header">
+      <div class="file-card-name">vectordb/vectordb.py</div>
+      <div class="file-card-desc">Low-Dimensional Database Manager (16D Demo)</div>
+    </div>
+    <pre><span class="lang-label">python</span><code><span class="kw">import</span> threading
+<span class="kw">import</span> time
+<span class="kw">from</span> dataclasses <span class="kw">import</span> dataclass
+<span class="kw">from</span> typing <span class="kw">import</span> Dict, List, Optional, Tuple
+
+<span class="kw">from</span> .bruteforce <span class="kw">import</span> BruteForce
+<span class="kw">from</span> .hnsw <span class="kw">import</span> HNSW, GraphInfo
+<span class="kw">from</span> .kdtree <span class="kw">import</span> KDTree
+<span class="kw">from</span> .metrics <span class="kw">import</span> DistFn, get_dist_fn
+<span class="kw">from</span> .types <span class="kw">import</span> VectorItem
+
+<span class="dec">@dataclass</span>
+<span class="kw">class</span> <span class="cls">Hit</span>:
+    id: int
+    meta: str
+    cat: str
+    emb: List[float]
+    dist: float
+
+<span class="dec">@dataclass</span>
+<span class="kw">class</span> <span class="cls">SearchOut</span>:
+    hits: List[Hit]
+    latency_us: int
+    algo: str
+    metric: str
+
+<span class="kw">class</span> <span class="cls">VectorDB</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, dims: int) -> None:
+        self.dims = dims
+        self._store: Dict[int, VectorItem] = {{}}
+        self._bf = BruteForce()
+        self._kdt = KDTree(dims)
+        self._hnsw = HNSW(M=<span class="num">16</span>, ef_build=<span class="num">200</span>)
+        self._lock = threading.Lock()
+        self._next_id = <span class="num">1</span>
+
+    <span class="kw">def</span> <span class="fn">insert</span>(self, metadata: str, category: str, emb: List[float], dist: DistFn) -> int:
+        <span class="kw">with</span> self._lock:
+            item = VectorItem(id=self._next_id, metadata=metadata, category=category, emb=emb)
+            self._next_id += <span class="num">1</span>
+            self._store[item.id] = item
+            self._bf.insert(item)
+            self._kdt.insert(item)
+            self._hnsw.insert(item, dist)
+            <span class="kw">return</span> item.id
+
+    <span class="kw">def</span> <span class="fn">remove</span>(self, item_id: int) -> bool:
+        <span class="kw">with</span> self._lock:
+            <span class="kw">if</span> item_id <span class="kw">not in</span> self._store: <span class="kw">return</span> False
+            <span class="kw">del</span> self._store[item_id]
+            self._bf.remove(item_id)
+            self._hnsw.remove(item_id)
+            self._kdt.rebuild(list(self._store.values()))
+            <span class="kw">return</span> True
+
+    <span class="kw">def</span> <span class="fn">search</span>(self, q: List[float], k: int, metric: str, algo: str) -> SearchOut:
+        <span class="kw">with</span> self._lock:
+            dist_fn = get_dist_fn(metric)
+            t0 = time.perf_counter()
+            <span class="kw">if</span> algo == <span class="str">"bruteforce"</span>:
+                raw = self._bf.knn(q, k, dist_fn)
+            <span class="kw">elif</span> algo == <span class="str">"kdtree"</span>:
+                raw = self._kdt.knn(q, k, dist_fn)
+            <span class="kw">else</span>:
+                raw = self._hnsw.knn(q, k, ef=<span class="num">50</span>, dist=dist_fn)
+            latency = int((time.perf_counter() - t0) * <span class="num">1000000</span>)
+            hits = [
+                Hit(id=nid, meta=self._store[nid].metadata, cat=self._store[nid].category, emb=self._store[nid].emb, dist=d)
+                <span class="kw">for</span> d, nid <span class="kw">in</span> raw <span class="kw">if</span> nid <span class="kw">in</span> self._store
+            ]
+            <span class="kw">return</span> SearchOut(hits=hits, latency_us=latency, algo=algo, metric=metric)</code></pre>
+  </div>
+
+  <div class="file-card">
+    <div class="file-card-header">
+      <div class="file-card-name">vectordb/documentdb.py</div>
+      <div class="file-card-desc">High-Dimensional Document &amp; RAG Database Manager</div>
+    </div>
+    <pre><span class="lang-label">python</span><code><span class="kw">import</span> threading
+<span class="kw">from</span> typing <span class="kw">import</span> Dict, List, Optional, Tuple
+<span class="kw">from</span> .bruteforce <span class="kw">import</span> BruteForce
+<span class="kw">from</span> .hnsw <span class="kw">import</span> HNSW
+<span class="kw">from</span> .metrics <span class="kw">import</span> cosine
+<span class="kw">from</span> .types <span class="kw">import</span> DocItem, VectorItem
+
+<span class="kw">class</span> <span class="cls">DocumentDB</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self) -> None:
+        self._store: Dict[int, DocItem] = {{}}
+        self._hnsw = HNSW(M=<span class="num">16</span>, ef_build=<span class="num">200</span>)
+        self._bf = BruteForce()
+        self._lock = threading.Lock()
+        self._next_id = <span class="num">1</span>
+        self._dims = <span class="num">0</span>
+
+    <span class="kw">def</span> <span class="fn">insert</span>(self, title: str, text: str, emb: List[float]) -> int:
+        <span class="kw">with</span> self._lock:
+            <span class="kw">if</span> self._dims == <span class="num">0</span>:
+                self._dims = len(emb)
+            doc = DocItem(id=self._next_id, title=title, text=text, emb=emb)
+            self._next_id += <span class="num">1</span>
+            self._store[doc.id] = doc
+            vi = VectorItem(id=doc.id, metadata=title, category=<span class="str">"doc"</span>, emb=emb)
+            self._hnsw.insert(vi, cosine)
+            self._bf.insert(vi)
+            <span class="kw">return</span> doc.id
+
+    <span class="kw">def</span> <span class="fn">remove</span>(self, doc_id: int) -> bool:
+        <span class="kw">with</span> self._lock:
+            <span class="kw">if</span> doc_id <span class="kw">not in</span> self._store: <span class="kw">return</span> False
+            <span class="kw">del</span> self._store[doc_id]
+            self._hnsw.remove(doc_id)
+            self._bf.remove(doc_id)
+            <span class="kw">return</span> True
+
+    <span class="kw">def</span> <span class="fn">search</span>(self, q: List[float], k: int, max_dist: float = <span class="num">0.7</span>) -> List[Tuple[float, DocItem]]:
+        <span class="kw">with</span> self._lock:
+            <span class="kw">if</span> <span class="kw">not</span> self._store: <span class="kw">return</span> []
+            <span class="kw">if</span> len(self._store) < <span class="num">10</span>:
+                raw = self._bf.knn(q, k, cosine)
+            <span class="kw">else</span>:
+                raw = self._hnsw.knn(q, k, ef=<span class="num">50</span>, dist=cosine)
+            <span class="kw">return</span> [
+                (d, self._store[nid])
+                <span class="kw">for</span> d, nid <span class="kw">in</span> raw
+                <span class="kw">if</span> nid <span class="kw">in</span> self._store <span class="kw">and</span> d <= max_dist
+            ]</code></pre>
+  </div>
+
+  <div class="code-annotation">
+    <strong>Code Analysis:</strong>
+    <ul>
+      <li><code>self._lock</code>: Serializes mutations across indices (HNSW, KD-Tree, BruteForce) to prevent threads from corrupting the index states during concurrent writes.</li>
+      <li><code>if len(self._store) &lt; 10</code>: Switches to a linear scan for small datasets to avoid the overhead of graph construction, optimizing search times for small collections.</li>
+    </ul>
+  </div>
+
+  <div class="step-nav">
+    <button class="btn-nav btn-prev" onclick="showStep(5)">← Previous</button>
+    <button class="btn-nav btn-next" onclick="showStep(7)">Next: Ollama &amp; Text Chunking →</button>
+  </div>
+</div>

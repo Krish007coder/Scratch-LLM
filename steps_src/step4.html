@@ -1,0 +1,121 @@
+<div class="step active">
+  <div class="step-header">
+    <div class="step-number">4</div>
+    <div class="step-title-block">
+      <h2>Data Types &amp; Distance Metrics</h2>
+      <div class="step-subtitle">Detailed line-by-line inspection of types.py and metrics.py</div>
+    </div>
+  </div>
+
+  <h3>1. Under the Hood: Memory Layouts</h3>
+  <p>In Python, a standard list of floats is an array of pointers to double-precision float objects scattered across the heap. This causes pointer chasing and cache lines misses. By utilizing Python's <code>__slots__</code> in our data containers, we restrict attributes dynamically, optimizing memory usage and eliminating the overhead of instance dictionaries.</p>
+
+  <div class="file-card">
+    <div class="file-card-header">
+      <div class="file-card-name">vectordb/types.py</div>
+      <div class="file-card-desc">Data Containers</div>
+    </div>
+    <pre><span class="lang-label">python</span><code><span class="kw">from</span> dataclasses <span class="kw">import</span> dataclass
+<span class="kw">from</span> typing <span class="kw">import</span> List
+
+<span class="dec">@dataclass</span>
+<span class="kw">class</span> <span class="cls">VectorItem</span>:
+    <span class="str">"""
+    Structured vector representation for low-dimensional indexes.
+    Uses __slots__ to eliminate instance dictionary overhead.
+    """</span>
+    __slots__ = (<span class="str">"id"</span>, <span class="str">"metadata"</span>, <span class="str">"category"</span>, <span class="str">"emb"</span>)
+    
+    id: int
+    metadata: str
+    category: str
+    emb: List[float]
+
+
+<span class="dec">@dataclass</span>
+<span class="kw">class</span> <span class="cls">DocItem</span>:
+    <span class="str">"""
+    Structured document container for production-grade 768D text indexing.
+    """</span>
+    __slots__ = (<span class="str">"id"</span>, <span class="str">"title"</span>, <span class="str">"text"</span>, <span class="str">"emb"</span>)
+    
+    id: int
+    title: str
+    text: str
+    emb: List[float]</code></pre>
+  </div>
+
+  <h3>2. Distance Metrics Mathematics</h3>
+  <p>Our database implements three core distance metrics. For two vectors <strong>u</strong> and <strong>v</strong> in d dimensions:</p>
+  <ul>
+    <li><strong>Euclidean Distance (L2 Norm)</strong>: Straight-line distance:
+      <div style="margin:8px 0;font-style:italic;font-size:14px;color:var(--grey-900);">D(u, v) = sqrt( sum( (u_i - v_i)^2 ) )</div>
+    </li>
+    <li><strong>Manhattan Distance (L1 Norm)</strong>: Sum of absolute differences:
+      <div style="margin:8px 0;font-style:italic;font-size:14px;color:var(--grey-900);">D(u, v) = sum( |u_i - v_i| )</div>
+    </li>
+    <li><strong>Cosine Distance</strong>: Angular difference:
+      <div style="margin:8px 0;font-style:italic;font-size:14px;color:var(--grey-900);">D(u, v) = 1 - (u · v) / (||u|| * ||v||)</div>
+      If vectors are pre-normalized to unit length, this simplifies to <code>1 - u · v</code>, bypassing divisions and square roots during search.
+    </li>
+  </ul>
+
+  <div class="file-card">
+    <div class="file-card-header">
+      <div class="file-card-name">vectordb/metrics.py</div>
+      <div class="file-card-desc">Distance Metric Implementation</div>
+    </div>
+    <pre><span class="lang-label">python</span><code><span class="kw">import</span> math
+<span class="kw">from</span> typing <span class="kw">import</span> Callable, List
+
+Vector = List[float]
+DistFn = Callable[[Vector, Vector], float]
+
+<span class="kw">def</span> <span class="fn">euclidean</span>(a: Vector, b: Vector) -> float:
+    <span class="kw">if</span> len(a) != len(b):
+        <span class="kw">raise</span> ValueError(<span class="str">f"Dimension mismatch: {len(a)} != {len(b)}"</span>)
+    s = <span class="num">0.0</span>
+    <span class="kw">for</span> x, y <span class="kw">in</span> zip(a, b):
+        d = x - y
+        s += d * d
+    <span class="kw">return</span> math.sqrt(s)
+
+<span class="kw">def</span> <span class="fn">cosine</span>(a: Vector, b: Vector) -> float:
+    <span class="kw">if</span> len(a) != len(b):
+        <span class="kw">raise</span> ValueError(<span class="str">f"Dimension mismatch: {len(a)} != {len(b)}"</span>)
+    dot = na = nb = <span class="num">0.0</span>
+    <span class="kw">for</span> x, y <span class="kw">in</span> zip(a, b):
+        dot += x * y
+        na += x * x
+        nb += y * y
+    <span class="kw">if</span> na < <span class="num">1e-9</span> <span class="kw">or</span> nb < <span class="num">1e-9</span>:
+        <span class="kw">return</span> <span class="num">1.0</span>
+    val = dot / (math.sqrt(na) * math.sqrt(nb))
+    val = max(-<span class="num">1.0</span>, min(<span class="num">1.0</span>, val))
+    <span class="kw">return</span> <span class="num">1.0</span> - val
+
+<span class="kw">def</span> <span class="fn">manhattan</span>(a: Vector, b: Vector) -> float:
+    <span class="kw">if</span> len(a) != len(b):
+        <span class="kw">raise</span> ValueError(<span class="str">f"Dimension mismatch: {len(a)} != {len(b)}"</span>)
+    <span class="kw">return</span> sum(abs(x - y) <span class="kw">for</span> x, y <span class="kw">in</span> zip(a, b))
+
+<span class="kw">def</span> <span class="fn">get_dist_fn</span>(metric: str) -> DistFn:
+    m = metric.lower()
+    <span class="kw">if</span> m == <span class="str">"cosine"</span>: <span class="kw">return</span> cosine
+    <span class="kw">if</span> m == <span class="str">"manhattan"</span>: <span class="kw">return</span> manhattan
+    <span class="kw">return</span> euclidean</code></pre>
+  </div>
+
+  <div class="code-annotation">
+    <strong>Code Analysis:</strong>
+    <ul>
+      <li><code>na &lt; 1e-9 or nb &lt; 1e-9</code>: Safeguards cosine distance calculation against division-by-zero exceptions if one of the vectors is empty or zero-magnitude.</li>
+      <li><code>val = max(-1.0, min(1.0, val))</code>: Prevents floating point precision errors from returning similarity scores outside standard mathematical boundaries.</li>
+    </ul>
+  </div>
+
+  <div class="step-nav">
+    <button class="btn-nav btn-prev" onclick="showStep(3)">← Previous</button>
+    <button class="btn-nav btn-next" onclick="showStep(5)">Next: Search Algorithms →</button>
+  </div>
+</div>

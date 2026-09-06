@@ -1,0 +1,107 @@
+<div class="step active">
+  <div class="step-header">
+    <div class="step-number">11</div>
+    <div class="step-title-block">
+      <h2>Version Control &amp; Deployment</h2>
+      <div class="step-subtitle">Deploying to the cloud and publishing via Git</div>
+    </div>
+  </div>
+
+  <h3>1. Production Deployment Architecture</h3>
+  <p>For production deployments, running Flask's built-in development server is not recommended. It is not designed to handle high concurrency, SSL/TLS encryption, or resource management. Instead, we use a production-ready WSGI server like <strong>Gunicorn</strong> behind a reverse proxy like <strong>Nginx</strong> or <strong>Traefik</strong>.</p>
+
+  <div class="diagram">
+    <div class="diagram-title">Production Web Architecture Flow</div>
+    <pre style="background:none;color:#334155;padding:0;margin:0;font-size:12.5px;">
+[ Client Browser ] ---> ( HTTPS / Port 443 ) ---> [ Nginx Reverse Proxy ]
+                                                        |
+                                                        v ( Gunicorn socket / Port 8080 )
+                                                 [ Flask Application ]
+                                                        |
+                                                        v ( REST / Port 11434 )
+                                                 [ Ollama Service ]
+    </pre>
+  </div>
+
+  <h3>2. Containerization with Docker</h3>
+  <p>To run our VectorDB service reliably across different environments (local development, staging, or cloud production), we containerize the application using <strong>Docker</strong>. This packages our Python dependencies, Flask server, and database wrapper into an isolated file system image.</p>
+
+  <div class="file-card">
+    <div class="file-card-header">
+      <div class="file-card-name">Dockerfile</div>
+      <div class="file-card-desc">Production Container Build Configuration</div>
+    </div>
+    <pre><span class="lang-label">dockerfile</span><code># Use a lightweight python image
+FROM python:3.9-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install python dependencies
+COPY requirements.txt /app/
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir gunicorn
+
+# Copy application files
+COPY . /app/
+
+# Expose server port
+EXPOSE 8080
+
+# Start server using Gunicorn with 4 worker threads
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "4", "--threads", "2", "main:app"]</code></pre>
+  </div>
+
+  <h3>3. Orchestrating with Docker Compose</h3>
+  <p>To manage both our VectorDB Flask server and local Ollama service together, we can orchestrate them using <strong>Docker Compose</strong>:</p>
+
+  <div class="file-card">
+    <div class="file-card-header">
+      <div class="file-card-name">docker-compose.yml</div>
+      <div class="file-card-desc">Multi-Service Orchestration</div>
+    </div>
+    <pre><span class="lang-label">yaml</span><code>version: '3.8'
+
+services:
+  vectordb:
+    build: .
+    ports:
+      - "8080:8080"
+    depends_on:
+      - ollama
+    environment:
+      - OLLAMA_HOST=ollama
+      - OLLAMA_PORT=11434
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+volumes:
+  ollama_data:</code></pre>
+  </div>
+
+  <h3>4. Version Control Setup</h3>
+  <p>Create a git repository to track updates and manage changes:</p>
+  <pre><span class="lang-label">bash</span><code>git init
+git add .
+git commit -m "Initial commit of VectorDB CodeLab codebase"
+git branch -M main
+git remote add origin YOUR_GITHUB_REPOSITORY_URL
+git push -u origin main</code></pre>
+
+  <div class="step-nav">
+    <button class="btn-nav btn-prev" onclick="showStep(10)">← Previous</button>
+    <button class="btn-nav btn-next" onclick="showStep(12)">Next: Rigorous Interview Q&amp;A →</button>
+  </div>
+</div>

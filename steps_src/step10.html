@@ -1,0 +1,71 @@
+<div class="step active">
+  <div class="step-header">
+    <div class="step-number">10</div>
+    <div class="step-title-block">
+      <h2>Entry Point (main.py)</h2>
+      <div class="step-subtitle">How main.py ties the entire system together</div>
+    </div>
+  </div>
+
+  <h3>1. Under the Hood: Entry Point Bootstrap</h3>
+  <p>The entry point script <code>main.py</code> manages database initialization, pre-populates the vector index with semantic categories to demonstrate spatial separation, and starts the Flask server. It configures the server to bind to port 8080 and sets up multi-threaded request handling to prevent slow Ollama operations from blocking other requests.</p>
+
+  <h3>2. Threaded Port Binding</h3>
+  <p>By default, Flask runs a single-threaded server that handles requests sequentially. Since generating text embeddings or running conversational queries through Ollama can take several seconds, a single-threaded server would block all other incoming requests during inference. To prevent this, we set <code>threaded=True</code> to instruct the WSGI server to run request handlers in separate OS threads.</p>
+
+  <div class="file-card">
+    <div class="file-card-header">
+      <div class="file-card-name">main.py</div>
+      <div class="file-card-desc">System Bootstrapper</div>
+    </div>
+    <pre><span class="lang-label">python</span><code><span class="kw">from</span> vectordb <span class="kw">import</span> OllamaClient, VectorDB, get_dist_fn
+<span class="kw">from</span> vectordb.documentdb <span class="kw">import</span> DocumentDB
+<span class="kw">from</span> server <span class="kw">import</span> create_app
+
+DIMS = <span class="num">16</span>
+
+<span class="kw">def</span> <span class="fn">load_demo</span>(db: VectorDB) -> None:
+    dist = get_dist_fn(<span class="str">"cosine"</span>)
+    records = [
+        (<span class="str">"Linked List: nodes connected by pointers"</span>, <span class="str">"cs"</span>,
+         [<span class="num">0.90</span>, <span class="num">0.85</span>, <span class="num">0.72</span>, <span class="num">0.68</span>, <span class="num">0.12</span>, <span class="num">0.08</span>, <span class="num">0.15</span>, <span class="num">0.10</span>, <span class="num">0.05</span>, <span class="num">0.08</span>, <span class="num">0.06</span>, <span class="num">0.09</span>, <span class="num">0.07</span>, <span class="num">0.11</span>, <span class="num">0.08</span>, <span class="num">0.06</span>]),
+        (<span class="str">"Binary Search Tree: logarithmic lookup complexity"</span>, <span class="str">"cs"</span>,
+         [<span class="num">0.88</span>, <span class="num">0.82</span>, <span class="num">0.75</span>, <span class="num">0.70</span>, <span class="num">0.10</span>, <span class="num">0.06</span>, <span class="num">0.12</span>, <span class="num">0.08</span>, <span class="num">0.04</span>, <span class="num">0.06</span>, <span class="num">0.05</span>, <span class="num">0.07</span>, <span class="num">0.06</span>, <span class="num">0.09</span>, <span class="num">0.07</span>, <span class="num">0.05</span>]),
+        (<span class="str">"Linear Regression: fitting a straight line to scatter data"</span>, <span class="str">"math"</span>,
+         [<span class="num">0.15</span>, <span class="num">0.10</span>, <span class="num">0.08</span>, <span class="num">0.06</span>, <span class="num">0.92</span>, <span class="num">0.88</span>, <span class="num">0.78</span>, <span class="num">0.74</span>, <span class="num">0.08</span>, <span class="num">0.06</span>, <span class="num">0.05</span>, <span class="num">0.07</span>, <span class="num">0.09</span>, <span class="num">0.08</span>, <span class="num">0.06</span>, <span class="num">0.07</span>]),
+        (<span class="str">"Shao Mai: steamed pork dumplings topped with crab roe"</span>, <span class="str">"food"</span>,
+         [<span class="num">0.08</span>, <span class="num">0.06</span>, <span class="num">0.05</span>, <span class="num">0.07</span>, <span class="num">0.09</span>, <span class="num">0.08</span>, <span class="num">0.06</span>, <span class="num">0.07</span>, <span class="num">0.12</span>, <span class="num">0.08</span>, <span class="num">0.06</span>, <span class="num">0.09</span>, <span class="num">0.95</span>, <span class="num">0.91</span>, <span class="num">0.82</span>, <span class="num">0.78</span>])
+    ]
+    <span class="kw">for</span> meta, cat, emb <span class="kw">in</span> records:
+        db.insert(meta, cat, emb, dist)
+
+<span class="kw">def</span> <span class="fn">main</span>() -> None:
+    db = VectorDB(DIMS)
+    doc_db = DocumentDB()
+    ollama = OllamaClient()
+    
+    # Pre-populate VectorDB with semantic clusters
+    load_demo(db)
+    
+    app = create_app(db, doc_db, ollama)
+    
+    # Run the server on port 8080 with multi-threading enabled
+    app.run(host=<span class="str">"0.0.0.0"</span>, port=<span class="num">8080</span>, threaded=True)
+
+<span class="kw">if</span> __name__ == <span class="str">"__main__"</span>:
+    main()</code></pre>
+  </div>
+
+  <div class="code-annotation">
+    <strong>Code Analysis:</strong>
+    <ul>
+      <li><code>host="0.0.0.0"</code>: Configures the server to listen on all network interfaces, allowing external clients on the local network (LAN) to access the application.</li>
+      <li><code>threaded=True</code>: Spawns a new OS thread to handle each incoming request, preventing slow CPU-bound distance computations or Ollama queries from blocking the main server loop.</li>
+    </ul>
+  </div>
+
+  <div class="step-nav">
+    <button class="btn-nav btn-prev" onclick="showStep(9)">← Previous</button>
+    <button class="btn-nav btn-next" onclick="showStep(11)">Next: Version Control &amp; Deploy →</button>
+  </div>
+</div>

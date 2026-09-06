@@ -1,0 +1,60 @@
+<div class="step active">
+  <div class="step-header">
+    <div class="step-number">1</div>
+    <div class="step-title-block">
+      <h2>Introduction &amp; Overview</h2>
+      <div class="step-subtitle">What we are building, why we are building it, and our design decisions</div>
+    </div>
+  </div>
+  <p>Welcome! This CodeLab is a comprehensive guide to understanding and building a production-inspired <strong>Vector Database</strong> from scratch. Rather than utilizing pre-packaged library blocks like FAISS, Pinecone, or scikit-learn, we build the core math, algorithms, and interfaces in raw Python.</p>
+  <p>By coding this end-to-end, you will gain an intuitive, interview-grade understanding of how spatial structures function in high dimensions, how graphs can navigate datasets rapidly, and how local LLM workflows combine with searching indexes to form <strong>Retrieval-Augmented Generation (RAG)</strong> systems.</p>
+  
+  <h3>Why Do Vector Databases Exist?</h3>
+  <p>Traditional SQL and NoSQL databases index documents using keys, indices, or keyword indexes (like B-Trees and Inverted Indexes). However, queries like <em>"similar sound signatures"</em> or <em>"semantically equivalent concepts"</em> cannot be resolved via direct string matching. We convert these inputs into arrays of numbers called <strong>embeddings</strong>. These capture the semantic essence of the data in high-dimensional vector space. A vector database is designed specifically to index and search these arrays with extreme efficiency.</p>
+
+  <div class="diagram">
+    <div class="diagram-title">Traditional Inverted Index vs Dense Vector Space</div>
+    <pre style="background:none;color:#334155;padding:0;margin:0;font-size:12.5px;">
+Inverted Index (BM25):
+[Term: "Recursive"] ---> [Doc 1, Doc 4, Doc 10]
+[Term: "Pointer"]   ---> [Doc 2, Doc 4, Doc 9]
+
+Vector Index (Dense Space):
+Dimension 2 (Algorithm Type)
+     ^
+     |        (Graph Search) [HNSW]
+     |                     \
+     |                      *  (List Search) [Linked List]
+     |
+     +----------------------------------------> Dimension 1 (Data Structures)
+    </pre>
+  </div>
+
+  <h3>Under the Hood: Hardware & Memory Constraints</h3>
+  <p>In-memory dense vectors are stored as contiguous arrays of floating-point numbers. For a dataset of N vectors in d dimensions, a brute-force scan requires loading N * d * 4 bytes of memory (for float32 precision) into CPU cache lines. At scale (e.g., N = 10^7, d = 768), a single query forces the traversal of approximately 30.72 GB of raw data. Contiguous allocations allow sequential prefetching, whereas pointer-chased heap objects (such as Python lists of floats) cause random memory references and L1/L2 cache misses.</p>
+
+  <h3>Tech Stack & Rationale</h3>
+  <table>
+    <thead>
+      <tr><th>Technology</th><th>Why We Used It</th><th>Why Not the Alternatives?</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Pure Python</strong></td><td>Forces us to write distance formulas, graph steps, and tree traversals manually, offering maximum educational transparency.</td><td><em>NumPy/C++</em>: Highly optimized, but shields the underlying logic behind vectorization abstractions.</td></tr>
+      <tr><td><strong>Flask</strong></td><td>Lightweight and synchronous, making request routing and thread management easier to visualize line-by-line.</td><td><em>FastAPI/Tornado</em>: Provides modern async capabilities, but increases implementation complexity under GIL.</td></tr>
+      <tr><td><strong>Ollama</strong></td><td>Provides a local LLM environment to query <code>nomic-embed-text</code> and <code>llama3.2</code> without subscription keys or network lag.</td><td><em>OpenAI/Cohere</em>: Cloud-hosted APIs are simple, but require billing setups and network access.</td></tr>
+      <tr><td><strong>HNSW Graph</strong></td><td>The production standard algorithm for searching high-dimensional vector datasets.</td><td><em>Locality Sensitive Hashing (LSH)</em>: Simpler, but typically yields lower recall/precision ratios.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout info">
+    <div class="callout-icon">💡</div>
+    <div class="callout-body">
+      <div class="callout-title">The Curse of Dimensionality</div>
+      <p>As the dimension d increases, the volume of space grows exponentially relative to the distance, and data points become nearly equidistant. Traditional spatial partitioning structures like KD-Trees fail to prune nodes, degrading search times to linear scans.</p>
+    </div>
+  </div>
+
+  <div class="step-nav">
+    <button class="btn-nav btn-next" onclick="showStep(2)">Next: Prerequisites &amp; Setup →</button>
+  </div>
+</div>
